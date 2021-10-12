@@ -1,0 +1,79 @@
+version: "3.9"
+services:
+  postgres:
+    image:  debezium/example-postgres
+    restart: always
+    ports:
+        - "5432:5432"
+    environment:
+        POSTGRES_USER: postgres
+        POSTGRES_PASSWORD: postgres
+  pulsar:
+    image:  apachepulsar/pulsar:2.5.2
+    restart: always
+    ports:
+        - "6650:6650"
+        - "8080:8080"
+    command: 
+      - "bin/pulsar"
+      - "standalone"
+    healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:8080/admin/clusters"]
+        interval: 30s
+        timeout: 10s
+        retries: 5
+  debezium:
+    image:  debezium/server
+    restart: always
+    ports:
+        - "9080:8080"
+    depends_on:
+      - "pulsar"
+      - "postgres"
+    links:
+      - "pulsar"
+      - "postgres"
+    volumes:
+      - "$PWD/conf:/debezium/conf"
+      - "$PWD/data:/debezium/data"
+  jobmanager:
+    image:  flink:latest
+    restart: always
+    ports:
+        - "8081:8081"
+    environment:
+        - |
+          FLINK_PROPERTIES=
+          jobmanager.rpc.address: jobmanager
+          parallelism.default: 2
+    command:
+      - "jobmanager"
+    depends_on:
+      - "debezium"
+      - "pulsar"
+      - "postgres"
+    links:
+      - "debezium"
+      - "pulsar"
+      - "postgres"
+  taskmanager:
+    image:  flink:latest
+    restart: always
+    environment:
+        - |
+          FLINK_PROPERTIES=
+          jobmanager.rpc.address: jobmanager
+          taskmanager.numberOfTaskSlots: 2
+          parallelism.default: 2 
+    command:
+      - taskmanager
+    scale: 1
+    depends_on:
+      - "jobmanager"
+      - "debezium"
+      - "pulsar"
+      - "postgres"
+    links:
+      - "debezium"
+      - "pulsar"
+      - "postgres"
